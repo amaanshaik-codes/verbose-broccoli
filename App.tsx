@@ -1,41 +1,88 @@
 
-import React, { useContext } from 'react';
-import { AppContext } from './context/AppContext';
-import LoginPage from './components/LoginPage';
-import MainPage from './components/MainPage';
+import React, { useState, useEffect } from 'react';
+import * as ReactRouterDOM from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { initializeDatabase, getPassword, saveLastLogin } from './services/db';
+import { ThemeProvider } from './hooks/useTheme';
+import { StoreProvider } from './hooks/useStore';
+import { DEFAULT_PASSWORD } from './constants';
 
-const LoadingSpinner: React.FC = () => (
-  <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-slate-950">
-    <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
-      <svg className="animate-spin h-5 w-5 text-primary-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-      </svg>
-      <span>Loading Classroom...</span>
-    </div>
-  </div>
-);
+import Layout from './components/Layout';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Attendance from './pages/Attendance';
+import EditAttendance from './pages/EditAttendance';
+import Settings from './pages/Settings';
+import Spinner from './components/ui/Spinner';
 
 const App: React.FC = () => {
-  const { isAuthenticated, settings, isLoading } = useContext(AppContext);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
-  React.useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
+  useEffect(() => {
+    initializeDatabase();
+    // Simple session check. In a real app, use a token.
+    const sessionAuth = sessionStorage.getItem('isAuthenticated');
+    if (sessionAuth) {
+      setIsAuthenticated(true);
     } else {
-      document.documentElement.classList.remove('dark');
+      setIsAuthenticated(false);
     }
-    document.body.className = `font-sans antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200`;
-  }, [settings.theme]);
+  }, []);
 
-  if (isLoading) {
-    return <LoadingSpinner />;
+  const handleLogin = async (password: string): Promise<boolean> => {
+    const storedPassword = await getPassword();
+    // Allow login with either the stored password or the default password as a fallback.
+    if (password === storedPassword || password === DEFAULT_PASSWORD) {
+      setIsAuthenticated(true);
+      sessionStorage.setItem('isAuthenticated', 'true');
+      await saveLastLogin(new Date().toISOString());
+      return true;
+    }
+    return false;
+  };
+  
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    sessionStorage.removeItem('isAuthenticated');
+  };
+
+  if (isAuthenticated === null) {
+    return <div className="flex items-center justify-center h-screen bg-gray-100 dark:bg-dark-bg"><Spinner /></div>;
   }
 
   return (
-    <div>
-      {isAuthenticated ? <MainPage /> : <LoginPage />}
-    </div>
+    <ThemeProvider>
+      <StoreProvider>
+        <ReactRouterDOM.HashRouter>
+          <ReactRouterDOM.Routes>
+            {!isAuthenticated ? (
+              <ReactRouterDOM.Route path="/login" element={<Login onLogin={handleLogin} />} />
+            ) : null}
+            
+            {isAuthenticated ? (
+               <ReactRouterDOM.Route path="/" element={<Layout onLogout={handleLogout} />}>
+                  <ReactRouterDOM.Route index element={<ReactRouterDOM.Navigate to="/dashboard" replace />} />
+                  <ReactRouterDOM.Route path="dashboard" element={<Dashboard />} />
+                  <ReactRouterDOM.Route path="attendance" element={<Attendance />} />
+                  <ReactRouterDOM.Route path="edit-attendance" element={<EditAttendance />} />
+                  <ReactRouterDOM.Route path="settings" element={<Settings />} />
+                  <ReactRouterDOM.Route path="*" element={<ReactRouterDOM.Navigate to="/dashboard" replace />} />
+               </ReactRouterDOM.Route>
+            ) : null}
+            <ReactRouterDOM.Route path="*" element={<ReactRouterDOM.Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />} />
+          </ReactRouterDOM.Routes>
+        </ReactRouterDOM.HashRouter>
+        <Toaster
+          position="bottom-center"
+          toastOptions={{
+            className: 'bg-gray-800 text-white dark:bg-dark-card dark:text-dark-text',
+            style: {
+              borderRadius: '10px',
+            },
+          }}
+        />
+      </StoreProvider>
+    </ThemeProvider>
   );
 };
 
